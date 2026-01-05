@@ -36,8 +36,8 @@ contract BridgeBase is Initializable, ReentrancyGuardUpgradeable, BridgeEvent {
     uint256 public feeRate;
     uint256 public messageNonce;
     mapping(uint256 => bool) public chainIdWhitelist;
-    mapping(IERC20 => bool) public tokenWhitelist;
-    mapping(uint256 => mapping(IERC20 => uint256)) public fundingPool;
+    mapping(address => bool) public tokenWhitelist;
+    mapping(uint256 => mapping(address => uint256)) public fundingPool;
     mapping(uint256 => uint256) public feeChainPool;
 
     using SafeERC20 for IERC20;
@@ -72,13 +72,13 @@ contract BridgeBase is Initializable, ReentrancyGuardUpgradeable, BridgeEvent {
         return true;
     }
 
-    function receiveToken(uint256 sourceChainId, uint256 destChainId, address to, IERC20 token, uint256 amount) external returns (bool) {
+    function receiveToken(uint256 sourceChainId, uint256 destChainId, address to, address token, uint256 amount) external returns (bool) {
         if (sourceChainId != block.chainid) { revert InvalidSourceChainId(); }
         if (!chainIdWhitelist[destChainId]) { revert InvalidDestChainId(); }
         if (!tokenWhitelist[token]) { revert InvalidToken(); }
         if (amount < minTransferAmount) { revert LessThanMinTransferAmount(); }
 
-        token.safeTransferFrom(msg.sender, address(this), amount);
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
 
         uint256 fee = (amount * feeRate) / FEE_DENOMINATOR;
         fundingPool[block.chainid][token] += amount;
@@ -109,18 +109,18 @@ contract BridgeBase is Initializable, ReentrancyGuardUpgradeable, BridgeEvent {
         return true;
     }
 
-    function allocateToken(uint256 sourceChainId, uint256 destChainId, address to, IERC20 token, uint256 amount) external onlyRelayer returns (bool) {
+    function allocateToken(uint256 sourceChainId, uint256 destChainId, address to, address token, uint256 amount) external onlyRelayer returns (bool) {
         if (destChainId != block.chainid) { revert InvalidDestChainId(); }
         if (!chainIdWhitelist[sourceChainId]) { revert InvalidSourceChainId(); }
         if (!tokenWhitelist[token]) { revert InvalidToken(); }
         if (amount < minTransferAmount) { revert LessThanMinTransferAmount(); }
 
-        if (token.balanceOf(address(this)) < amount) { revert FundNotSufficient(); }
-        token.safeTransfer(to, amount);
+        if (IERC20(token).balanceOf(address(this)) < amount) { revert FundNotSufficient(); }
+        IERC20(token).safeTransfer(to, amount);
 
         fundingPool[block.chainid][token] -= amount;
 
-        emit TokenAllocated(sourceChainId, destChainId, to, address(token), amount);
+        emit TokenAllocated(sourceChainId, destChainId, to, token, amount);
         return true;
     }
 
@@ -143,7 +143,7 @@ contract BridgeBase is Initializable, ReentrancyGuardUpgradeable, BridgeEvent {
         return true;
     }
 
-    function sendTokenToUser(IERC20 token, address to, uint256 amount) external onlyRelayer returns (bool) {
+    function sendTokenToUser(address token, address to, uint256 amount) external onlyRelayer returns (bool) {
         if (!tokenWhitelist[token]) { revert InvalidToken(); }
         if (fundingPool[token] < amount) { revert FundNotSufficient(); }
         fundingPool[token] -= amount;
@@ -152,8 +152,8 @@ contract BridgeBase is Initializable, ReentrancyGuardUpgradeable, BridgeEvent {
             if (address(this).balance < amount) { revert FundNotSufficient(); }
             Address.sendValue(to, amount);
         } else {
-            if (token.balanceOf(address(this)) < amount) { revert FundNotSufficient(); }
-            token.safeTransfer(to, amount);
+            if (IERC20(token).balanceOf(address(this)) < amount) { revert FundNotSufficient(); }
+            IERC20(token).safeTransfer(to, amount);
         }
         return true;
     }
@@ -164,7 +164,7 @@ contract BridgeBase is Initializable, ReentrancyGuardUpgradeable, BridgeEvent {
     }
 
     function setTokenWhitelist(address token, bool isValid) external onlyRelayer {
-        tokenWhitelist[IERC20(token)] = isValid;
+        tokenWhitelist[token] = isValid;
         emit BridgeBaseConfigChanged(this.setTokenWhitelist.selector, "setTokenWhitelist(address,bool)", abi.encode(token, isValid));
     }
 
